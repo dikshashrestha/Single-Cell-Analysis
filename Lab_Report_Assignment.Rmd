@@ -1,0 +1,471 @@
+---
+title: "Individual Lab Report - Diksha Shrestha"
+output:
+  pdf_document: default
+  html_document: default
+date: "2022-08-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This individual lab report is your opportunity to explore concepts covered in lab to date, and challenge yourself with one new method that we have not discussed.  You will apply these methods to a new dataset we have not used, generate pretty visualizations, and think critically about the strengths/weaknesses of your chosen approach.
+
+You may find the Bioconductor book [Orchestrating Single Cell Analysis](http://bioconductor.org/books/3.12/OSCA/) extremely helpful as a reference and guide. However, remember to use it as a guide, not a tutorial, and question things when you think they might be done better some other way. Do NOT simply copy-and-paste code or text. You probably should do things differently.
+
+The assignment is worth 20 points as indicated below. There are up to 4 bonus points in Step #5, but the maximum grade will be 100% (20/20 pts). Try to be thoughtful and creative, generate many clear figures to support critical discussion.
+
+## Step 1: Load your data
+
+Select a dataset of interest to you from the `cellxgene` browser (https://cellxgene.cziscience.com/datasets). Prefer datasets less than 10,000 cells (and more than 500), unless your laptop is really great and you want a challenge. Also prefer datasets that tell a story of interest to you (e.g. embryonic brain development, metastatic breast cancer vs. normal tissue, COVID-19 infection vs. normal). 
+
+Download the `.rds` file containing a `Seurat (v3)` object.
+
+Load your data (1 pt). `my_data` is a sparse dgCMatrix that you can use to create a new Seurat or SingleCellExperiment object, or simply wrangle using base R. Do whatever you prefer. If you are using the SingleCellExperiment class, remember NOT to copy and paste text from the OSCA book. Do things your own way and don't fall into the same pitfalls that they fall into.
+
+```{r}
+
+#BiocManager::install("fgsea")
+devtools::install_github("zdebruine/singlet")
+```
+
+```{r}
+library(singlet)
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+set.seed(120)
+
+```
+
+The dataset is about **Single Cell Analysis of Human Pancreas Reveals Transcriptional Signature of Aging and Somatic Mutation Patters** where the dataset measures the effect of aging in human tissues by performing a single cell transcriptome analysis of 2,544 pancreas cell from eight donors which are spanned in six decades of life. This dataset allows us to detect the feature of aging that are not coordinated across many cells that are affected in different cells. I have randomly set the seed as 120 so that my program would generate the same output everytime I run the program.
+
+```{r}
+single_cell <- readRDS("/Users/diksha/Desktop/3_Sem/Data_Mining/Individual_Lab_Report/singlecell.rds")
+```
+
+
+```{r}
+single_cell
+```
+
+```{r}
+str(single_cell)
+```
+
+
+```{r}
+data <- CreateSeuratObject(single_cell@assays$RNA@data)
+data@meta.data <- cbind(single_cell@meta.data, data@meta.data)
+```
+
+```{r}
+# To check the dimension of the Seurat object
+dim(data)
+```
+
+```{r}
+data[['RNA']]
+```
+
+## Step 2: Pre-process your dataset
+
+Apply any appropriate pre-processing (i.e. feature selection, sample selection, quality control, normalization) (2 pts).
+
+As you work through the rest of this project, make sure that you always explain WHAT you are doing and WHY you are doing it, not just HOW you are doing it (i.e. the code). Provide links to any helpful information or documentation that guided your decisions.
+
+If normalizing, be sure to explain why you used what method you did. Feel free to experiment with several normalization methods.
+
+**Quality Control**
+
+The QC metrics is used to know how if the cells are low quality.There were many identity of the cells that were 0 and had an empty object. I used the quality control metric to remove the values that were 0 and if it had any outliers. For this, I subset the data of the nFeature to **greater than 200** and **less than 2500.**
+
+```{r}
+data <- subset(data, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 )
+```
+
+
+```{r}
+VlnPlot(data, features = "nFeature_RNA",pt.size=0.1)
+```
+
+
+```{r}
+VlnPlot(data, features = "nCount_RNA",pt.size=0.1)
+```
+
+```{r}
+FeatureScatter(data, feature1 = "nFeature_RNA", feature2 = "nCount_RNA")
+```
+
+
+```{r}
+VlnPlot(data, features = c("nFeature_RNA", "nCount_RNA"), ncol = 3)
+```
+
+The normalization is used to remove the biasness that might occur in cells. So, I have used the normalization to figure out the highly variable genes which is further used for the downstream analysis.
+
+```{r}
+data <- NormalizeData(data)
+```
+
+## Step 3: Dimension Reduction
+
+Choose a method for dimension reduction and justify your choice of method, explain how you estimated `k` (2 pts), and learn the model in a reproducible manner (set the seed if needed) (1pt).
+
+I have applied the **NMF method** for the dimension reduction as it helps in finding the rank of the dimensions which are performed through the cross validation method. I have also used a K-clustering and the K-value that was generated through the cross-validation was 21.
+
+```{r cache=TRUE}
+data <- RunNMF(data)
+```
+
+
+## Step 4: Cell clustering
+
+Select a clustering algorithm and cluster samples appropriately (2pts). Justify your choice of algorithm and any hyperparameters (1 pt). Feel free to experiment with different methods.
+
+```{r}
+data <- FindNeighbors(data, reduction = "nmf", dims = 1:ncol(data@reductions$nmf))
+```
+
+The clustering of the cell was then performed to find the neighbors so that we could discover the cell subtypes of the single cell pancreas dataset. This was performed to find the genes that had high expression profles.
+
+
+
+```{r}
+data <- FindClusters(data)
+```
+
+```{r}
+
+
+data <- RunUMAP(data, dims = 1:ncol(data@reductions$nmf), reduction = "nmf")
+```
+
+
+
+Through this finding cluster function, we have been able to find the the nodes that tends to cluster together. Since, the number of nodes is 696 and the number of edges shows 15310.
+
+## Step 5: Advanced Analysis
+
+Do something that we haven't yet done in lab. Take your pick from one of the below items:
+
+* Annotate cell clusters by "cell type" using SingleR (see SingleR documentation or OSCA chapter 12). Of course, you may also use other cell type annotation software, but discuss why.
+* Trajectory analysis by ordering cells in pseudotime using a minimum spanning tree (see TSCAN or monocle, OSCA chapter 18).
+* Identify and visualize marker genes for each cell cluster. Discuss why you used what methods you used (see OSCA chapter 11).
+* Cell cycle assignment. Assign cell cycle stage to each of your cells. Is there any cluster or dimension reduction factor that associates with cell cycle state? (see OSCA chapter 17)
+2 points each. You can earn up to 4 bonus points for doing multiple of these. 
+
+
+**Finding the Marker Gene**
+
+For the advanced analysis, I performed the Marker Gene cell cluster to know if there was any gene that were specifically marked in any of the clusters. I used the Marker Gene to basically compare and see if each Seurat cluster had any gene marker that helped in identifying that individual gene were located in the cluster. I grouped the development stage and the cell type to find if there were any highly expressed gene that showed the marker expression in the cluster.
+
+
+```{r}
+BiocManager::install("scran")
+```
+
+
+```{r}
+library(scran)
+```
+
+```{r}
+cluster <- DimPlot(data, reduction = 'umap', group.by = 'seurat_clusters', label = TRUE)
+cluster
+```
+```{r}
+dev <- DimPlot(data, reduction = 'umap', group.by = 'development_stage')
+dev
+```
+
+
+
+```{r}
+dev|cluster
+```
+We have data integrated and these data are again annotated.
+
+**FindAll Markers**
+
+```{r}
+DefaultAssay(data)
+```
+
+```{r}
+BiocManager::install("DESeq2")
+```
+
+```{r}
+library(DESeq2)
+```
+
+```{r}
+FindAllMarkers(data,
+               logfc.threshold = 0.25,
+               min.pct = 0.1,
+               only.pos = TRUE,
+               test.use = 'DESeq2',
+               slot = 'counts')
+```
+
+
+
+```{r}
+markers0 <- FindConservedMarkers(data,
+                     ident.1 = 0,
+                     grouping.var = 'development_stage')
+
+head(markers0)
+```
+
+
+
+**Visualizing the top feature**
+
+```{r}
+FeaturePlot(data, features = c('ENSG00000185615'), min.cutoff = 'q10')
+```
+
+
+Through this feature visualization, we can see that the gene **ENSG00000185615** of the development stage is highly expressed in the cluster 0 which makes it the gene marker for the cluster 0. The expression of gene that are lower than the 10th percentile will be expressed in grey whereas the expression of genes that are more than 10th percentile will be expressed through the purple proportion in the graph.
+
+
+```{r}
+markers1 <- FindConservedMarkers(data,
+                     ident.1 = 1,
+                     grouping.var = 'development_stage')
+
+head(markers1)
+
+```
+
+```{r}
+FeaturePlot(data, features = c('ENSG00000120885'), min.cutoff = 'q10')
+```
+
+Through this feature visualization, we can see that the gene **ENSG00000120885** of the development stage is highly expressed in the cluster 1,3,5,6,9,10,13 which makes it the gene marker for these clusters. The expression of gene that are lower than the 10th percentile will be expressed in grey. we can see that this gene are not found in the cluster 11 and it has less gene in the cluster 0.
+
+**Plotting the genes in the UMAP**
+```{r}
+FeaturePlot(data, features = c('ENSG00000185615', 'ENSG00000120885'), min.cutoff = 'q10' )
+```
+
+```{r}
+marker0 <- FindConservedMarkers(data,
+                     ident.1 = 0,
+                     grouping.var = 'cell_type')
+
+head(marker0)
+```
+
+```{r}
+FeaturePlot(data, features = c('ENSG00000162438'), min.cutoff = 'q10')
+```
+Through this feature visualization, we can see that the gene **ENSG00000162438** of the cell type is highly expressed in the cluster 12 and 7  which makes it the gene marker for these clusters. The expression of gene that are lower than the 10th percentile will be expressed in grey. We can see that this gene are not found in many other cluster.
+
+```{r}
+marker0 <- FindConservedMarkers(data,
+                     ident.1 = 1,
+                     grouping.var = 'cell_type')
+
+head(marker0)
+```
+
+
+```{r}
+FeaturePlot(data, features = c('ENSG00000008018'), min.cutoff = 'q10')
+```
+Through this feature visualization, we can see that the gene **ENSG00000008018** of the cell type is highly expressed in various cluster and these gene marker are denoted in each clusters. The expression of gene that are lower than the 10th percentile are expressed in grey. 
+
+```{r}
+FeaturePlot(data, features = c('ENSG00000162438', 'ENSG00000008018'), min.cutoff = 'q10' )
+```
+
+
+## Step 6: Visualize 
+
+Select a dimensional reduction method for visualization on 2D coordinates. Justify your choice of method (1 pt). Use these coordinates to generate visualizations of your work from step #5, including one or more of cell type annotations, trajectory analysis, or selected marker gene expression profiles (1 pt)
+
+
+```{r}
+data <- RunUMAP(data, dims = 1:ncol(data@reductions$nmf), reduction = "nmf")
+```
+
+```{r}
+RankPlot(data)
+```
+
+
+
+```{r}
+DimPlot(data, label = TRUE)
+
+```
+I have performed the UMAP for the NMF as per the figure shown above where the dimension of the data has been reduced to a  2-dimension graph and each of the colors are then represented through the different coloring that has been assigned to different clusters. We can see that the clusters are separated from each other. There are 15 different cluster that has been generated through the UMAP.
+
+
+
+
+
+Use these coordinates to plot sample loading from selected factors in your dimension reduction (1 pt)
+
+I have also visualized the development_stage metadata  to see how it is distributed in the NMF model. The NMF model is a good representation to show how the metadata of the development stage are distributed. The different color represented the different development group.
+```{r}
+MetadataPlot(data, "development_stage", reduction = "nmf")
+```
+
+
+Generate any other interesting figures or plots that might help us figure out what information can be learned from your data (1 pt)
+
+
+Similarly, I have also grouped the dataset by the cell type  and the different cell types are also grouped accordingly with different colors as per the cells.
+```{r}
+MetadataPlot(data, "cell_type", reduction = "nmf")
+```
+
+
+
+```{r}
+df <- cbind(data@reductions$umap@cell.embeddings, data@reductions$nmf@cell.embeddings, data@meta.data)
+```
+
+
+```{r, fig.width = 8, fig.height = 8}
+
+FeaturePlot(data, features = paste0("NMF_", 1:4))
+```
+
+```{r}
+data@meta.data$seurat_clusters
+```
+
+
+Change one method in your analysis workflow (e.g. normalization method, cell type clustering algorithm, method for dimensional reduction) and repeat your pipeline as before. Select one interesting output (e.g. cell type annotation, pseudotime assignment, visualization, etc.), and evaluate what changed. Are the results significantly different from one another? If so, is it better, worse, or are you unable to determine one way or another? (2 pts)
+
+**Performing PCA Dimension Reduction**
+
+```{r}
+data1 <- NormalizeData(data)
+```
+
+```{r}
+data1 <- FindVariableFeatures(data1, selection.method = "vst", nfeatures = 2000)
+```
+```{r}
+top10 <- head(VariableFeatures(data1), 10)
+```
+
+```{r}
+plot <- VariableFeaturePlot(data1)
+plots <- LabelPoints(plot = plot, points = top10, repe1 = TRUE)
+CombinePlots(plot = list(plot, plots))
+```
+
+These plots is used to determine the subset of the dataset that exhibits high cell variation within the dataset. Through this plot, we would then perform our dimensional reduction on the variable count value.
+
+```{r}
+all.genes <- rownames(data1)
+data1 <- ScaleData (data1, features = all.genes)
+```
+
+The scaling of the data is performed to apply a linear transformation in the dataset which is the pre-processing before the dimensional reduction stage. The below step shows the PCA that is ran on the scaled data.
+
+```{r}
+data1 <- RunPCA(data1, features = VariableFeatures(object = data1))
+```
+
+```{r}
+print(data1[["pca"]], dims = 1:9, nfeatures = 9)
+```
+
+```{r}
+DimPlot(data1, reduction = "pca")
+```
+
+```{r}
+data1 <- JackStraw(data1, num.replicate = 100)
+data1 <- ScoreJackStraw(data1, dims = 1:15)
+```
+
+```{r}
+ElbowPlot(data1, ndims = 50)
+```
+
+```{r}
+data1 <- FindNeighbors(data1, dims = 1:12)
+data1 <- FindClusters(data1, resolution = 0.5)
+```
+
+```{r}
+data1 <- RunUMAP(data1, dims = 1:12)
+```
+
+```{r}
+DimPlot(data1, label = TRUE)
+```
+I have also performed the UMAP for the PCA model as per the figure shown above where the dimension of the data has been reduced to a  2-dimension graph and each of the colors are then represented through the different coloring that has been assigned to different clusters. We can see that the clusters are separated from each other. However, there are 11 different cluster that has been generated through the PCA UMAP.
+
+```{r}
+DimPlot(data1, reduction = "umap", label = TRUE)
+```
+
+
+```{r}
+df <- data.frame(
+  "nmf_clusters" = data@meta.data$seurat_clusters,
+  "pca_clusters" = data1@meta.data$cell_type)
+
+df <- df[!is.na(df$pca_clusters), ]
+df <- df %>% group_by(pca_clusters, nmf_clusters) %>% tally()
+
+ggplot(df, aes(nmf_clusters, pca_clusters, size = n, color = n)) + 
+  geom_point() + 
+  theme_bw() + 
+  labs(x = "NMF cluster", 
+       y = "PCA cluster", 
+       size = "proportion\nof cluster", 
+       color = "cells in\nNMF cluster") + 
+  scale_color_viridis_c(option = "D")
+```
+
+
+By comparing the NMF and PCA, we can see that the clustering is different in both. Furthermore, we can see that the type A enteroendocrine cell has a high sample of cell in the PCA and NMF. We can also see that not many of the samples are present in the PCA and NMF which may be the reason for the cluster cell in PCA is less than that of the NMF model.
+```{r}
+MetadataPlot(data1, "development_stage", reduction = "pca")
+```
+By running through the NMF and PCA, we can see that PCA is not a good approach to analyze the metadata as we can see that the above figure doesn't much represent what the data is trying to convey and what each development stage are distributed in PCA.
+```{r}
+MetadataPlot(data1, "cell_type", reduction = "pca")
+```
+
+
+
+**Finding the AllMarker under PCA model**
+```{r}
+cluster1 <- FindMarkers(data1, ident.1 = 1, min.pct = 0.25)
+head(cluster1, n = 10)
+```
+
+```{r}
+cluster0 <- FindMarkers(data1, ident.1 = 0, ident.2 = c(1,2), min.pct = 0.25)
+head(cluster0)
+```
+
+
+
+
+## Step 7: Draw conclusions
+
+Comment on your use of software. What are the pros/cons of the packages/functions you've chosen to use? What can be improved? (1 pt)
+
+The Seurat package was a new to me and I had hard time being familiar with reading and viewing the dataset and each metadata that was in the dataset. However, I'm happy that I was able to work on this Seurat object as it was a great learning experience for me. In regards to drawbacks, I would say that working on each function was a bit difficult and I had a hard time installing packages that consumed lot of my work. Similarly, this software was not much user friendly to Mac user so I had to devote my most of the time searching in internet to see how to install different packages and software.
+
+Did you learn anything interesting about your data? Do your results make sense given the dataset you worked with? (1 pt)
+
+The development stage of the donor was mostly from the 5 years age group and the 54 year development stage donor had a constant distribution  whereas there was high proportion of the data that were unknown in the development stage.
